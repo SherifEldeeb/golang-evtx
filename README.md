@@ -71,7 +71,11 @@ for timelining purposes (with `sort` command for instance).
 ```
 Usage of evtxdump: evtxdump [OPTIONS] FILES...
   -V	Show version and exit
+  -brURL string
+        Kafka Broker URL
   -c	Carve events from file
+  -cID string
+        Kafka client ID
   -cpuprofile string
     	write cpu profile to this file
   -d	Enable debug mode
@@ -86,7 +90,25 @@ Usage of evtxdump: evtxdump [OPTIONS] FILES...
   -stop value
     	Print logs before stop
   -t	Prints event timestamp (as int) at the beginning of line to make sorting easier
+  -tag string
+        special tag for matching purpose on remote collector
+  -tcp string
+        tcp socket address for sending output to remote site over TCP. Only for type tcp
+  -topic string
+        Kafka topic
+  -http string
+        url for sending output to remote site over HTTP. Only for type http
+  -type string
+        Type of remote log collector. "http" - JSON-over-HTTP, "tcp" - JSON-over-TCP, "kafka" -  Kafka
   -u	Does not care about ordering the events before printing (faster for large files)
+```
+
+### docker version evtxdump
+
+```
+docker build -t MonaxGT/evtxdump .
+docker run -it --rm -v /tmp:/app/data evtxdump /app/data/log.evtx
+
 ```
 
 ## evtxmon

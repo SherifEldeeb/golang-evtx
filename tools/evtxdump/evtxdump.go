@@ -22,7 +22,6 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"evtx"
 	"flag"
 	"fmt"
 	"io"
@@ -33,6 +32,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/0xrawsec/golang-evtx/evtx"
+	"github.com/0xrawsec/golang-evtx/output"
 	"github.com/0xrawsec/golang-utils/args"
 	"github.com/0xrawsec/golang-utils/log"
 )
@@ -58,6 +59,13 @@ var (
 	statflag      bool
 	offset        int64
 	limit         int
+	tag           string
+	outTcp        string
+	outHttp       string
+	outType       string
+	brURL         string
+	cID           string
+	topic         string
 	start, stop   args.DateVar
 	chunkHeaderRE = regexp.MustCompile(evtx.ChunkMagic)
 	defaultTime   = time.Time{}
@@ -211,7 +219,7 @@ func printEvent(e *evtx.GoEvtxMap) {
 
 		if timestamp {
 			if err == nil {
-				fmt.Printf("%d: %s\n", t.Unix(), string(evtx.ToJSON(e)))
+				fmt.Printf("%d: %s\n", t.UnixNano(), string(evtx.ToJSON(e)))
 			} else {
 				log.Errorf("Event time not found: %s", string(evtx.ToJSON(e)))
 			}
@@ -239,6 +247,14 @@ func main() {
 
 	flag.StringVar(&memprofile, "memprofile", "", "write memory profile to this file")
 	flag.StringVar(&cpuprofile, "cpuprofile", "", "write cpu profile to this file")
+
+	flag.StringVar(&outType, "type", "", "Type of remote log collector. JSON-over-HTTP, JSON-over-TCP, Kafka")
+	flag.StringVar(&outHttp, "http", "", "url for sending output to remote site over HTTP")
+	flag.StringVar(&outTcp, "tcp", "", "tcp socket address for sending output to remote site over TCP")
+	flag.StringVar(&brURL, "brURL", "", "Kafka Broker URL")
+	flag.StringVar(&topic, "topic", "", "Kafka topic")
+	flag.StringVar(&cID, "cID", "", "Kafka client ID")
+	flag.StringVar(&tag, "tag", "", "special tag for matching purpose on remote collector")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of %s: %[1]s [OPTIONS] FILES...\n", filepath.Base(os.Args[0]))
@@ -288,6 +304,39 @@ func main() {
 	// init stats in case needed
 	s := newStats()
 
+	// init tcp sender if exists
+	var out output.Output
+	switch outType {
+	case "http":
+		httpOut := &output.HttpJSON{
+			Url: outHttp,
+			Tag: tag,
+		}
+		if err := httpOut.Open(outHttp); err != nil {
+			log.Errorf("Can't init http conn", err)
+		}
+		out = httpOut
+	case "tcp":
+		tcpOut := &output.TcpJSON{
+			Tag: tag,
+		}
+		if err := tcpOut.Open(outTcp); err != nil {
+			log.Errorf("Can't init tcp conn", err)
+		}
+		out = tcpOut
+	case "kafka":
+		kafkaOut := &output.Kafka{
+			BrokerURLs: brURL,
+			Topic:      topic,
+			ClientID:   cID,
+			Tag:        tag,
+		}
+		if err := kafkaOut.Open(outHttp); err != nil {
+			log.Errorf("Can't init Kafka conn", err)
+		}
+		out = kafkaOut
+	}
+
 	for _, evtxFile := range flag.Args() {
 		switch {
 		case carve:
@@ -296,7 +345,7 @@ func main() {
 		}
 		if !carve {
 			// Regular EVTX file
-			ef, err := evtx.New(evtxFile)
+			ef, err := evtx.Open(evtxFile)
 			if err != nil {
 				log.Error(err)
 				continue
@@ -307,7 +356,11 @@ func main() {
 					s.update(e.Channel(), e.EventID())
 				} else {
 					// We print events
-					printEvent(e)
+					if outType != "" {
+						out.Request(e)
+					} else {
+						printEvent(e)
+					}
 				}
 			}
 		} else {
